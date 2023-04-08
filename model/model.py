@@ -14,6 +14,7 @@ class AttentionHead(nn.Module):
         self.query = nn.Linear(n_embed, head_size, bias=False)
         self.value = nn.Linear(n_embed, head_size, bias=False)
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = nn.Dropout(dropout)
         
     def forward(self, x):
         batch, time, single_embed_size = x.shape
@@ -22,7 +23,8 @@ class AttentionHead(nn.Module):
         v = self.value(x)
         wei = q @ k.transpose(-2, -1) * single_embed_size ** -0.5
         masked_output = wei.masked_fill(self.tril[:time, :time] == 0, float('-inf'))
-        masked_softmax = F.softmax(masked_output, dim=1)
+        masked_softmax = F.softmax(masked_output, dim=-1)
+        masked_softmax = self.dropout(masked_softmax)
         output = masked_softmax @ v
         return output
     
@@ -32,11 +34,12 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.multiHeadAtt = nn.ModuleList([AttentionHead(head_size) for _ in range(num_heads)]) 
         self.projections = nn.Linear(n_embed, n_embed)
+        self.dropout = nn.Dropout(dropout)
     def forward(self, x):
 
         attention_list = [attn_head(x) for attn_head in self.multiHeadAtt]
         attention_list = torch.cat(attention_list, dim = -1)
-        return self.projections(attention_list)
+        return self.dropout(self.projections(attention_list))
     
 class SimpleFeedForward(nn.Module):
 
@@ -46,6 +49,7 @@ class SimpleFeedForward(nn.Module):
             nn.Linear(n_embed, 4 * n_embed),
             nn.ReLU(),
             nn.Linear(4 * n_embed, n_embed),
+            nn.Dropout(dropout)
         )
 
     def forward(self, x):
@@ -58,10 +62,12 @@ class TransformerBlock(nn.Module):
         head_size_new = n_embed // n_heads
         self.att_head = MultiHeadAttention(n_heads, head_size_new)
         self.ffwd = SimpleFeedForward(n_embed)
+        self.layer_norm1 = nn.LayerNorm(n_embed)
+        self.layer_norm2 = nn.LayerNorm(n_embed)
 
     def forward(self, x):
-        x = x + self.att_head(x)    
-        x = x + self.ffwd(x)
+        x = x + self.att_head(self.layer_norm1(x))
+        x = x + self.ffwd(self.layer_norm2(x))
         return x
         
 
@@ -74,11 +80,8 @@ class GPTModel(nn.Module):
         self.token_embeddings = nn.Embedding(vocab_size, n_embed)
         self.position_embeddings = nn.Embedding(block_size, n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
-        self.block = nn.Sequential(
-            TransformerBlock(4),
-            TransformerBlock(4),
-            TransformerBlock(4),
-            )
+        self.block = nn.Sequential(*[TransformerBlock(n_heads=4) for _ in range(n_layer)])
+        self.layer_norm3 = nn.LayerNorm(n_embed)
         self.apply(self.__init_weights__)
         
         for pn, p in self.named_parameters():
@@ -102,7 +105,8 @@ class GPTModel(nn.Module):
         token_embeddings = self.token_embeddings(idx)
         positional_embeddings = self.position_embeddings(torch.arange(T, device=device))
         x = token_embeddings + positional_embeddings
-        x = self.block(x)
+        x = self.layer_norm3(self.block(x))
+
         logits = self.lm_head(x)
         
         if target is None:
