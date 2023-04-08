@@ -38,3 +38,4 @@ for iter in range(max_iter):
 print("Final loss: {}".format(loss.item()))
 
 print(encoder.decode(model.generate_captions(torch.zeros((1, 1), dtype = torch.long).to(device), 1000)[0].tolist()))
+torch.save(model, "./checkpoint/shakespearModel")
