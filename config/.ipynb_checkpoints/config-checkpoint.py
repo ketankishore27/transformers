@@ -1,0 +1,11 @@
+block_size = 8
+max_iter = 300
+eval_iter = 30
+batch_size = 32
+vocab_size = 65
+n_embed = 32
+n_layer = 12
+learning_rate = 1e-3
+compile=False
+device_comp='mps'
+head_size = 8

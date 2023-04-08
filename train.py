@@ -1,16 +1,19 @@
-import os
-os.system("conda activate azureml_py38_PT_TF")
-from data.prepare import *
-from model.utilities import *
-from model.model import *
+import numpy as np
+from data.prepare import get_charEncoding, create_splits
+from config.config import *
+from model.model import GPTModel
+from model.utilities import evaluate_loss
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-device = torch.device(device_comp)
+if device_comp:
+    device = torch.device(device_comp)
+    
+torch.manual_seed(1337)
+print(device)
 
-
-train_data, test_data, encoder = create_data_encodings(path="./data/text.txt", encoder_config = "gpt-4")
-data_x, data_y = create_splits(train_data, test_data, mode = 'train')
+encoded_train_data, encoded_test_data, encoder = get_charEncoding(path="./data/text.txt")
+data_x, data_y = create_splits(encoded_train_data, encoded_test_data, mode='train')
 
 model = GPTModel()
 if compile:
@@ -20,6 +23,18 @@ else:
 
 print(model)
 
-#testing
-model(data_x, data_y)
-print(encoder.decode(model.generate_captions(torch.zeros((1, 1), dtype = torch.long).to(device), 100)[0].tolist()))
+optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-2)
+for iter in range(max_iter):
+    
+    if iter % eval_iter == 0:
+        output_loss = evaluate_loss(model, encoded_train_data, encoded_test_data)
+        print("Current Step: {}, Train Loss: {}, Test Loss: {}".format(iter, round(output_loss['train'], 4), round(output_loss['test'], 4)))
+    x, y = create_splits(encoded_train_data, encoded_test_data, mode='train')
+    logits, loss = model(x, y)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+print("Final loss: {}".format(loss.item()))
+
+print(encoder.decode(model.generate_captions(torch.zeros((1, 1), dtype = torch.long).to(device), 1000)[0].tolist()))
