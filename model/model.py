@@ -102,8 +102,9 @@ class GPTModel(nn.Module):
     def forward(self, idx, target = None):
 
         B, T = idx.shape
+        device_in = idx.device
         token_embeddings = self.token_embeddings(idx)
-        positional_embeddings = self.position_embeddings(torch.arange(T, device=device))
+        positional_embeddings = self.position_embeddings(torch.arange(T, dtype = torch.long, device=device_in))
         x = token_embeddings + positional_embeddings
         x = self.layer_norm3(self.block(x))
 
